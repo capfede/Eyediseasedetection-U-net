@@ -1,0 +1,10 @@
+Flask
+gunicorn
+numpy
+pandas
+Pillow
+tensorflow
+Flask-Login
+Flask-SQLAlchemy
+Flask-Mail
+Flask-SQLAlchemy
