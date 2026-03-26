@@ -1,0 +1,112 @@
+{% extends "base_dashboard.html" %}
+
+{% block title %}Edit Patient{% endblock %}
+
+{% block page_title %}Edit Patient Details{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5><i class="fas fa-user-edit me-2"></i>Edit Patient Details (#{{ patient.id }})</h5>
+        <a href="/patient/{{ patient.id }}" class="btn btn-outline-secondary btn-sm">Back to Patient</a>
+    </div>
+    <div class="card-body">
+        <form action="/patient/{{ patient.id }}/edit" method="POST">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" class="form-control" name="name" value="{{ patient.name }}" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Age</label>
+                    <input type="number" class="form-control" name="age" value="{{ patient.age }}" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Gender</label>
+                    <select class="form-select" name="gender" required>
+                        <option value="Male" {% if patient.gender == 'Male' %}selected{% endif %}>Male</option>
+                        <option value="Female" {% if patient.gender == 'Female' %}selected{% endif %}>Female</option>
+                        <option value="Other" {% if patient.gender == 'Other' %}selected{% endif %}>Other</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Blood Group</label>
+                    <select class="form-select" name="blood_group">
+                        <option value="A+" {% if patient.blood_group == 'A+' %}selected{% endif %}>A+</option>
+                        <option value="A-" {% if patient.blood_group == 'A-' %}selected{% endif %}>A-</option>
+                        <option value="B+" {% if patient.blood_group == 'B+' %}selected{% endif %}>B+</option>
+                        <option value="B-" {% if patient.blood_group == 'B-' %}selected{% endif %}>B-</option>
+                        <option value="AB+" {% if patient.blood_group == 'AB+' %}selected{% endif %}>AB+</option>
+                        <option value="AB-" {% if patient.blood_group == 'AB-' %}selected{% endif %}>AB-</option>
+                        <option value="O+" {% if patient.blood_group == 'O+' %}selected{% endif %}>O+</option>
+                        <option value="O-" {% if patient.blood_group == 'O-' %}selected{% endif %}>O-</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Place/City</label>
+                    <input type="text" class="form-control" name="place" value="{{ patient.place }}" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Phone Number</label>
+                    <input type="tel" class="form-control" name="phone" value="{{ patient.phone }}" required>
+                </div>
+                {% if current_user.role != 'staff' %}
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Assign Doctor</label>
+                    <select class="form-select" name="doctor_id" id="doctor_id_select">
+                        <option value="">Not Assigned</option>
+                        {% for doctor in doctors %}
+                        <option value="{{ doctor.id }}" {% if patient.doctor_id == doctor.id %}selected{% endif %}>Dr. {{ doctor.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Assign Staff</label>
+                    <select class="form-select" name="staff_id" id="staff_id_select">
+                        <option value="">None</option>
+                        {% for staff in all_staff %}
+                        <option value="{{ staff.id }}" data-doctor="{{ staff.doctor_id }}" {% if patient.staff_id == staff.id %}selected{% endif %}>{{ staff.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+            </div>
+            <div class="text-end mt-3">
+                <button type="submit" class="btn btn-primary px-5">Update Details</button>
+            </div>
+        </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var doctorSelect = document.getElementById('doctor_id_select');
+    var staffSelect = document.getElementById('staff_id_select');
+    
+    if (doctorSelect && staffSelect) {
+        function updateStaffOptions(resetStaff) {
+            var selectedDoctor = doctorSelect.value;
+            var staffOptions = staffSelect.querySelectorAll('option[data-doctor]');
+            
+            if (resetStaff) {
+                staffSelect.value = "";
+            }
+            
+            staffOptions.forEach(function(opt) {
+                if (opt.getAttribute('data-doctor') === selectedDoctor && selectedDoctor !== "") {
+                    opt.style.display = 'block';
+                    opt.disabled = false;
+                } else {
+                    opt.style.display = 'none';
+                    opt.disabled = true;
+                }
+            });
+        }
+        
+        doctorSelect.addEventListener('change', function() { updateStaffOptions(true); });
+        updateStaffOptions(false); // Init on load
+    }
+});
+</script>
+{% endblock %}

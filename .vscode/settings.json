@@ -1,0 +1,6 @@
+{
+    "files.exclude": {
+        "**/.venv": true,
+        "**/requirements.txt": true
+    }
+}

@@ -7,4 +7,5 @@ tensorflow
 Flask-Login
 Flask-SQLAlchemy
 Flask-Mail
-Flask-SQLAlchemy
+opencv-python
+scikit-image

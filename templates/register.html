@@ -1,91 +1,110 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base_dashboard.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register Patient - Eye Medicore</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .header {
-            background-color: #8B1538;
-            color: white;
-            padding: 20px 0;
-            margin-bottom: 30px;
-        }
+{% block title %}Register Patient{% endblock %}
 
-        .btn-primary {
-            background-color: #8B1538;
-            border-color: #8B1538;
-        }
+{% block page_title %}Patient Registration{% endblock %}
 
-        .btn-primary:hover {
-            background-color: #A91D3A;
-            border-color: #A91D3A;
-        }
-
-        .card {
-            border-radius: 15px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-    </style>
-</head>
-
-<body>
-    <div class="header">
-        <div class="container d-flex justify-content-between align-items-center">
-            <h2>Patient Registration</h2>
-            <a href="/" class="btn btn-outline-light">Back to Home</a>
-        </div>
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h5><i class="fas fa-user-plus me-2"></i>New Patient Details</h5>
     </div>
-
-    <div class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }}">{{ message }}</div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
-
-        <div class="row justify-content-center">
-            <div class="col-md-6">
-                <div class="card p-4">
-                    <form action="/register" method="POST">
-                        <div class="mb-3">
-                            <label class="form-label">Full Name</label>
-                            <input type="text" class="form-control" name="name" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Age</label>
-                            <input type="number" class="form-control" name="age" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Gender</label>
-                            <select class="form-select" name="gender" required>
-                                <option value="Male">Male</option>
-                                <option value="Female">Female</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Blood Group</label>
-                            <input type="text" class="form-control" name="blood_group">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Place</label>
-                            <input type="text" class="form-control" name="place" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Phone Number</label>
-                            <input type="tel" class="form-control" name="phone_number" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Register Patient</button>
-                    </form>
+    <div class="card-body">
+        <form action="/register" method="POST">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" class="form-control" name="name" placeholder="Enter patient name" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Age</label>
+                    <input type="number" class="form-control" name="age" placeholder="Age" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Gender</label>
+                    <select class="form-select" name="gender" required>
+                        <option value="">Select</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                    </select>
                 </div>
             </div>
-        </div>
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Blood Group</label>
+                    <select class="form-select" name="blood_group">
+                        <option value="">Select</option>
+                        <option value="A+">A+</option>
+                        <option value="A-">A-</option>
+                        <option value="B+">B+</option>
+                        <option value="B-">B-</option>
+                        <option value="AB+">AB+</option>
+                        <option value="AB-">AB-</option>
+                        <option value="O+">O+</option>
+                        <option value="O-">O-</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Place/City</label>
+                    <input type="text" class="form-control" name="place" placeholder="City" required>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Phone Number</label>
+                    <input type="tel" class="form-control" name="phone" placeholder="Contact number" required>
+                </div>
+                {% if current_user.role != 'staff' %}
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Assign Doctor</label>
+                    <select class="form-select" name="doctor_id" id="doctor_id_select">
+                        <option value="">Not Assigned</option>
+                        {% for doctor in doctors %}
+                        <option value="{{ doctor.id }}">Dr. {{ doctor.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Assign Staff</label>
+                    <select class="form-select" name="staff_id" id="staff_id_select">
+                        <option value="">None</option>
+                        {% for staff in all_staff %}
+                        <option value="{{ staff.id }}" data-doctor="{{ staff.doctor_id }}" style="display:none;" disabled>{{ staff.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+            </div>
+            <div class="text-end mt-3">
+                <button type="submit" class="btn btn-primary px-5">Complete Registration</button>
+            </div>
+        </form>
     </div>
-</body>
+</div>
 
-</html>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var doctorSelect = document.getElementById('doctor_id_select');
+    var staffSelect = document.getElementById('staff_id_select');
+    
+    if (doctorSelect && staffSelect) {
+        doctorSelect.addEventListener('change', function() {
+            var selectedDoctor = doctorSelect.value;
+            var staffOptions = staffSelect.querySelectorAll('option[data-doctor]');
+            
+            // Reset staff selection when doctor changes
+            staffSelect.value = "";
+            
+            staffOptions.forEach(function(opt) {
+                if (opt.getAttribute('data-doctor') === selectedDoctor && selectedDoctor !== "") {
+                    opt.style.display = 'block';
+                    opt.disabled = false;
+                } else {
+                    opt.style.display = 'none';
+                    opt.disabled = true;
+                }
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

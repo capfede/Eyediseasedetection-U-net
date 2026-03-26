@@ -1,0 +1,53 @@
+/* Shared Styling for Authentication Pages (Login, Forgot Password, Reset Password) */
+
+.auth-bg {
+    background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)),
+        url("/static/images/amrita_campus.jpg");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.auth-card {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    width: 100%;
+    max-width: 450px;
+}
+
+.auth-card h2 {
+    color: #8B1538;
+}
+
+.btn-primary {
+    background-color: #8B1538;
+    border-color: #8B1538;
+}
+
+.btn-primary:hover {
+    background-color: #A91D3A;
+    border-color: #A91D3A;
+}
+
+.text-maroon {
+    color: #8B1538;
+}
+
+.form-control:focus {
+    border-color: #8B1538;
+    box-shadow: 0 0 0 0.2rem rgba(139, 21, 56, 0.25);
+}
+
+.input-group-text {
+    background-color: #f8f9fa;
+    color: #8B1538;
+}

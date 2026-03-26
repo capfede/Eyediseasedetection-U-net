@@ -1,5 +1,4 @@
 import os
-os.environ['TF_USE_LEGACY_KERAS'] = '1'
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_mail import Mail, Message
@@ -8,12 +7,11 @@ import string
 from datetime import datetime, timedelta
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from functools import wraps
-from tensorflow.keras.models import load_model
 import numpy as np
-from tensorflow.keras.applications.vgg16 import preprocess_input
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.utils import load_img, img_to_array
-from models import db, Patient, Diagnosis, Appointment, User
+from models import db, Patient, Diagnosis, Appointment, User, get_local_time
+from unet_predict import predict_dr
+from dr_predict import predict_dr_class
+import re
 from datetime import datetime, date, time
 
 app = Flask(__name__)
@@ -50,13 +48,43 @@ def create_admin():
             db.session.commit()
             print("Admin user created.")
 
-# Load Model
-model = load_model('models/final_model.h5')
+
+
+def cleanup_old_appointments():
+    """Automatically delete appointments older than 3 years."""
+    try:
+        cutoff_date = date.today() - timedelta(days=3*365)
+        old_appointments = Appointment.query.filter(Appointment.date < cutoff_date).all()
+        
+        if old_appointments:
+            count = len(old_appointments)
+            for appt in old_appointments:
+                db.session.delete(appt)
+            db.session.commit()
+            print(f"Cleanup: Deleted {count} appointments older than 3 years (before {cutoff_date}).")
+    except Exception as e:
+        db.session.rollback()
+        print(f"Cleanup Error: {e}")
 
 # Ensure database tables exist
 with app.app_context():
     db.create_all()
+    # Add new columns if they don't exist
+    from sqlalchemy import text
+    try:
+        db.session.execute(text('ALTER TABLE user ADD COLUMN doctor_id INTEGER REFERENCES user(id)'))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        
+    try:
+        db.session.execute(text('ALTER TABLE patient ADD COLUMN staff_id INTEGER REFERENCES user(id)'))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        
     create_admin()
+    cleanup_old_appointments()
 
 # Allow files with extension png, jpg and jpeg
 ALLOWED_EXT = set(['jpg', 'jpeg', 'png'])
@@ -109,7 +137,7 @@ def login():
             
             login_user(user)
             # Track last login
-            user.last_login = datetime.utcnow()
+            user.last_login = get_local_time()
             db.session.commit()
             flash('Login Successful!', 'success')
             # Redirect to appropriate dashboard based on role
@@ -131,13 +159,21 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Redirect admin to admin dashboard
+    # Redirect admin to admin dashboard 
     if current_user.role == 'it_expert':
         return redirect(url_for('admin_dashboard'))
     
     # Get stats for doctor/staff
-    patient_count = Patient.query.count()
-    appointment_count = Appointment.query.count()
+    if current_user.role == 'staff':
+        patient_count = Patient.query.filter_by(doctor_id=current_user.doctor_id).count() if current_user.doctor_id else 0
+        appointment_count = Appointment.query.join(Patient).filter(Patient.doctor_id == current_user.doctor_id).count() if current_user.doctor_id else 0
+    elif current_user.role == 'doctor':
+        patient_count = Patient.query.filter_by(doctor_id=current_user.id).count()
+        appointment_count = Appointment.query.join(Patient).filter(Patient.doctor_id == current_user.id).count()
+    else:
+        patient_count = Patient.query.count()
+        appointment_count = Appointment.query.count()
+        
     diagnosis_count = Diagnosis.query.count() if current_user.role == 'doctor' else 0
     staff_count = User.query.filter_by(role='staff').count() if current_user.role == 'doctor' else 0
     
@@ -151,7 +187,7 @@ def dashboard():
 @login_required
 def patient_search():
     # Patient search functionality
-    if current_user.role not in ['doctor', 'staff']:
+    if current_user.role not in ['doctor', 'staff', 'it_expert']:
         flash('Unauthorized access', 'danger')
         return redirect(url_for('dashboard'))
     
@@ -159,6 +195,12 @@ def patient_search():
     if patient_id:
         patient = Patient.query.get(patient_id)
         if patient:
+            if current_user.role == 'staff' and patient.doctor_id != current_user.doctor_id:
+                flash('Unauthorized to view this patient.', 'danger')
+                return redirect(url_for('dashboard'))
+            if current_user.role == 'doctor' and patient.doctor_id != current_user.id:
+                flash('Unauthorized to view this patient.', 'danger')
+                return redirect(url_for('dashboard'))
             return redirect(url_for('patient_dashboard', patient_id=patient.id))
         else:
             flash('Patient ID not found!', 'danger')
@@ -169,6 +211,7 @@ def patient_search():
 @role_required('it_expert')
 def admin_dashboard():
     users = User.query.all()
+    doctors = User.query.filter_by(role='doctor').order_by(User.username).all()
     doctor_count = User.query.filter_by(role='doctor').count()
     staff_count = User.query.filter_by(role='staff').count()
     patient_count = Patient.query.count()
@@ -176,6 +219,7 @@ def admin_dashboard():
     
     return render_template('unified_dashboard.html', 
                            users=users,
+                           doctors=doctors,
                            doctor_count=doctor_count,
                            staff_count=staff_count,
                            patient_count=patient_count,
@@ -199,7 +243,10 @@ def staff_list():
         flash('Unauthorized access', 'danger')
         return redirect(url_for('dashboard'))
     
-    staff = User.query.filter_by(role='staff').order_by(User.id.desc()).all()
+    if current_user.role == 'doctor':
+        staff = User.query.filter_by(role='staff', doctor_id=current_user.id).order_by(User.id.desc()).all()
+    else:
+        staff = User.query.filter_by(role='staff').order_by(User.id.desc()).all()
     return render_template('list_view.html', 
                            items=staff,
                            list_type='staff',
@@ -213,11 +260,39 @@ def patients_list():
         flash('Unauthorized access', 'danger')
         return redirect(url_for('dashboard'))
     
-    patients = Patient.query.order_by(Patient.id.desc()).all()
+    if current_user.role == 'doctor':
+        patients = Patient.query.filter_by(doctor_id=current_user.id).order_by(Patient.id.desc()).all()
+    elif current_user.role == 'staff':
+        if not current_user.doctor_id:
+            patients = []
+        else:
+            patients = Patient.query.filter_by(doctor_id=current_user.doctor_id).order_by(Patient.id.desc()).all()
+    else:
+        patients = Patient.query.order_by(Patient.id.desc()).all()
+        
     return render_template('list_view.html', 
                            items=patients,
                            list_type='patients',
                            page_title='Patients List')
+
+
+@app.route('/promote-staff', methods=['GET', 'POST'])
+@login_required
+@role_required('doctor')
+def promote_staff():
+    if request.method == 'POST':
+        staff_id = request.form.get('staff_id')
+        user = User.query.get(staff_id)
+        if user and user.role == 'staff':
+            user.role = 'doctor'
+            db.session.commit()
+            flash(f'User {user.username} has been promoted to Doctor.', 'success')
+        else:
+            flash('Invalid selection. Only staff members can be promoted.', 'danger')
+        return redirect(url_for('promote_staff'))
+
+    staff = User.query.filter_by(role='staff').order_by(User.id.desc()).all()
+    return render_template('promote_staff.html', staff=staff)
 
 
 @app.route('/admin/create_user', methods=['POST'])
@@ -229,6 +304,11 @@ def create_user():
     role = request.form['role']
     email = request.form.get('email')
     phone_number = request.form.get('phone_number', '')
+    doctor_id = request.form.get('doctor_id') if role == 'staff' else None
+    
+    if email and not re.match(r"^[a-zA-Z0-9_.+-]+@gmail\.com$", email):
+        flash('Enter a valid Gmail address.', 'danger')
+        return redirect(url_for('admin_dashboard'))
     
     if User.query.filter_by(username=username).first():
         flash('Username already exists', 'danger')
@@ -236,6 +316,8 @@ def create_user():
         flash('Email already registered', 'danger')
     else:
         new_user = User(username=username, role=role, email=email, phone_number=phone_number)
+        if role == 'staff' and doctor_id:
+            new_user.doctor_id = doctor_id
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
@@ -261,6 +343,11 @@ def admin_edit_user(user_id):
         new_email = request.form.get('email')
         new_phone = request.form.get('phone_number')
         new_role = request.form.get('role')
+        doctor_id = request.form.get('doctor_id') if new_role == 'staff' else None
+        
+        if new_email and not re.match(r"^[a-zA-Z0-9_.+-]+@gmail\.com$", new_email):
+            flash('Enter a valid Gmail address.', 'danger')
+            return redirect(url_for('admin_edit_user', user_id=user_id))
         
         # Check username uniqueness
         if new_username != user.username:
@@ -279,12 +366,17 @@ def admin_edit_user(user_id):
         user.email = new_email
         user.phone_number = new_phone
         user.role = new_role
+        if new_role == 'staff':
+            user.doctor_id = doctor_id
+        else:
+            user.doctor_id = None
         db.session.commit()
         
         flash(f'User {user.username} updated successfully', 'success')
         return redirect(url_for('view_user', user_id=user_id))
     
-    return render_template('edit_user.html', user=user)
+    doctors = User.query.filter_by(role='doctor').order_by(User.username).all()
+    return render_template('edit_user.html', user=user, doctors=doctors)
 
 @app.route('/admin/toggle_status/<int:user_id>', methods=['POST'])
 @login_required
@@ -324,6 +416,12 @@ def admin_delete_user(user_id):
         flash(f'Cannot delete user {user.username}: User has {len(user.diagnoses)} diagnosis records. Deactivate instead.', 'danger')
         return redirect(url_for('admin_dashboard'))
     
+    # Set assigned patients doctor_id to None
+    if user.role == 'doctor':
+        Patient.query.filter_by(doctor_id=user.id).update({Patient.doctor_id: None})
+    elif user.role == 'staff':
+        Patient.query.filter_by(staff_id=user.id).update({Patient.staff_id: None})
+    
     username = user.username
     db.session.delete(user)
     db.session.commit()
@@ -335,15 +433,9 @@ def admin_delete_user(user_id):
 @app.route('/register', methods=['GET', 'POST'])
 @login_required
 def register():
-    if current_user.role not in ['staff', 'doctor', 'it_expert']: # Staff primarily, but doctors might need to?
-         # "The system allows staff users to perform patient registration"
-         # Usually doctors can too in small clinics, but let's stick to strict or permissive?
-         # "Staff users are limited to administrative operations... patient registration"
-         if current_user.role != 'staff' and current_user.role != 'doctor': # Assuming doctor is super-set effectively or just different?
-             # Doctors have "full access to clinical...". Doesn't explicitly say they can register, but usually implied. 
-             # Let's allow Staff and Doctor.
-             flash('Permission denied', 'danger')
-             return redirect(url_for('index'))
+    if current_user.role not in ['staff', 'it_expert']: 
+         flash('Permission denied', 'danger')
+         return redirect(url_for('index'))
              
     if request.method == 'POST':
         name = request.form['name']
@@ -353,30 +445,117 @@ def register():
         place = request.form['place']
         phone = request.form['phone']
         
-        new_patient = Patient(name=name, age=age, gender=gender, blood_group=blood_group, place=place, phone=phone)
+        if current_user.role == 'staff':
+            doctor_id = current_user.doctor_id
+            staff_id = current_user.id
+            if not doctor_id:
+                flash('You are not assigned to any doctor. Cannot register patients.', 'danger')
+                return redirect(url_for('dashboard'))
+        else:
+            doctor_id = request.form.get('doctor_id')
+            staff_id = request.form.get('staff_id') or None
+            
+            if doctor_id:
+                doctor_check = User.query.get(doctor_id)
+                if not doctor_check or doctor_check.role != 'doctor':
+                    flash('Invalid doctor selected.', 'danger')
+                    return redirect(url_for('register'))
+            else:
+                doctor_id = None
+                
+            if staff_id:
+                staff_check = User.query.get(staff_id)
+                if not staff_check or staff_check.role != 'staff' or str(staff_check.doctor_id) != str(doctor_id):
+                    flash('Invalid staff selected or staff does not belong to the selected doctor.', 'danger')
+                    return redirect(url_for('register'))
+            else:
+                staff_id = None
+        
+        new_patient = Patient(name=name, age=age, gender=gender, blood_group=blood_group, place=place, phone=phone, doctor_id=doctor_id, staff_id=staff_id)
         db.session.add(new_patient)
         db.session.commit()
         
         flash(f'Patient Registered Successfully! ID: {new_patient.id}', 'success')
         return redirect(url_for('patient_dashboard', patient_id=new_patient.id))
-    return render_template('register.html')
+        
+    doctors = User.query.filter_by(role='doctor').order_by(User.username).all()
+    all_staff = User.query.filter_by(role='staff').order_by(User.username).all()
+    return render_template('register.html', doctors=doctors, all_staff=all_staff)
+    
+@app.route('/patient/<int:patient_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_patient(patient_id):
+    if current_user.role not in ['staff', 'it_expert']:
+         flash('Permission denied. Only staff can edit patients.', 'danger')
+         return redirect(url_for('patient_dashboard', patient_id=patient_id))
+         
+    patient = Patient.query.get_or_404(patient_id)
+    if current_user.role == 'staff' and patient.doctor_id != current_user.doctor_id:
+         flash('Unauthorized. You can only edit patients assigned to your doctor.', 'danger')
+         return redirect(url_for('patient_dashboard', patient_id=patient_id))
+         
+    if request.method == 'POST':
+        patient.name = request.form['name']
+        patient.age = request.form['age']
+        patient.gender = request.form['gender']
+        patient.blood_group = request.form['blood_group']
+        patient.place = request.form['place']
+        patient.phone = request.form['phone']
+        
+        if current_user.role == 'staff':
+            pass # Keep existing doctor_id
+        else:
+            doctor_id = request.form.get('doctor_id')
+            staff_id = request.form.get('staff_id') or None
+            
+            if doctor_id:
+                doctor_check = User.query.get(doctor_id)
+                if not doctor_check or doctor_check.role != 'doctor':
+                    flash('Invalid doctor selected.', 'danger')
+                    return redirect(url_for('edit_patient', patient_id=patient_id))
+                patient.doctor_id = doctor_id
+            else:
+                patient.doctor_id = None
+                
+            if staff_id:
+                staff_check = User.query.get(staff_id)
+                if not staff_check or staff_check.role != 'staff' or str(staff_check.doctor_id) != str(doctor_id):
+                    flash('Invalid staff selected or staff does not belong to the selected doctor.', 'danger')
+                    return redirect(url_for('edit_patient', patient_id=patient_id))
+                patient.staff_id = staff_id
+            else:
+                patient.staff_id = None
+            
+        db.session.commit()
+        flash('Patient details updated successfully!', 'success')
+        return redirect(url_for('patient_dashboard', patient_id=patient.id))
+        
+    doctors = User.query.filter_by(role='doctor').order_by(User.username).all()
+    all_staff = User.query.filter_by(role='staff').order_by(User.username).all()
+    return render_template('edit_patient.html', patient=patient, doctors=doctors, all_staff=all_staff)
 
 @app.route('/diagnosis/patients')
 @login_required
 @role_required('doctor')
 def diagnosis_patients():
-    # Show list of all patients for diagnosis
-    patients = Patient.query.order_by(Patient.id.desc()).all()
+    # Show list of all patients assigned to the logged-in doctor
+    patients = Patient.query.filter_by(doctor_id=current_user.id).order_by(Patient.id.desc()).all()
     return render_template('diagnosis_patients.html', patients=patients)
 
 @app.route('/patient/<int:patient_id>', methods=['GET'])
 @login_required
 def patient_dashboard(patient_id):
     # Staff and Doctor can view dashboard, but content is filtered in template
-    if current_user.role not in ['staff', 'doctor']:
+    if current_user.role not in ['staff', 'doctor', 'it_expert']:
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
     patient = Patient.query.get_or_404(patient_id)
+    if current_user.role == 'staff' and patient.doctor_id != current_user.doctor_id:
+        flash('Unauthorized to view this patient.', 'danger')
+        return redirect(url_for('dashboard'))
+    if current_user.role == 'doctor' and patient.doctor_id != current_user.id:
+        flash('Unauthorized to view this patient.', 'danger')
+        return redirect(url_for('dashboard'))
     return render_template('patient_dashboard.html', patient=patient)
 
 @app.route('/predict/<int:patient_id>', methods=['POST'])
@@ -387,34 +566,33 @@ def predict(patient_id):
     
     file = request.files.get('filename')
     if file and allowed_file(file.filename):
-        filename = f"{patient_id}_{int(datetime.now().timestamp())}_{file.filename}"
+        filename = f"{patient_id}_{int(get_local_time().timestamp())}_{file.filename}"
         file_path = os.path.join('static/images', filename)
         file.save(file_path)
 
-        # Prediction Logic
-        image_obj = load_img(file_path, target_size=(224, 224))
-        input_arr = img_to_array(image_obj)
-        input_arr = np.array([input_arr])
-        prediction = model(input_arr)
-        classes_x = np.argmax(prediction, axis=1)
-        pred_prob = np.max(prediction)
-        
-        labs = ['Cataract', 'Glaucoma', 'Diabetic Retinopathy', 'Normal']
-        diseases = labs[classes_x[0]] if classes_x[0] < len(labs) else "Unknown"
+        # 1. U-Net Segmentation (for visualization mask)
+        _, mask_path = predict_dr(file_path)
+
+        # 2. DR Classification (for actual diagnosis)
+        label, confidence = predict_dr_class(file_path)
 
         # Save Diagnosis to DB
         new_diagnosis = Diagnosis(
             patient_id=patient.id,
             doctor_id=current_user.id,
-            disease=diseases,
-            probability=float(pred_prob),
+            disease=label,
+            probability=confidence,
             image_path=file_path
         )
         db.session.add(new_diagnosis)
         db.session.commit()
         
         flash('Diagnosis added successfully!', 'success')
-        return redirect(url_for('patient_dashboard', patient_id=patient_id))
+        return render_template('patient_dashboard.html', 
+                               patient=patient, 
+                               result=label, 
+                               confidence=confidence, 
+                               mask_path=mask_path)
     else:
         flash('Invalid file or upload failed.', 'danger')
         return redirect(url_for('patient_dashboard', patient_id=patient_id))
@@ -422,26 +600,40 @@ def predict(patient_id):
 @app.route('/appointments', methods=['GET'])
 @login_required
 def appointments():
-    if current_user.role not in ['staff', 'doctor']:
+    if current_user.role not in ['staff', 'doctor', 'it_expert']:
         flash('Unauthorized', 'danger')
         return redirect(url_for('index'))
+    view_type = request.args.get('view_type', 'all')
     filter_date = request.args.get('date')
-    if filter_date:
+    
+    if current_user.role == 'staff':
+        if not current_user.doctor_id:
+            query = Appointment.query.filter(False) # No doctor assigned means no patients/appointments
+        else:
+            query = Appointment.query.join(Patient).filter(Patient.doctor_id == current_user.doctor_id)
+    elif current_user.role == 'doctor':
+        query = Appointment.query.join(Patient).filter(Patient.doctor_id == current_user.id)
+    else:
+        query = Appointment.query
+    
+    if view_type == 'today':
+        query = query.filter_by(date=date.today())
+    elif view_type == 'upcoming':
+        query = query.filter(Appointment.date > date.today())
+    elif filter_date:
         try:
             search_date = datetime.strptime(filter_date, '%Y-%m-%d').date()
-            appointments = Appointment.query.filter_by(date=search_date).order_by(Appointment.time).all()
+            query = query.filter_by(date=search_date)
         except ValueError:
             flash('Invalid date format', 'danger')
-            appointments = []
-    else:
-        # Default to all appointments or just today/upcoming? Let's show all for now or upcoming
-        # For simplicity in this step, let's just show all ordered by date/time
-        appointments = Appointment.query.order_by(Appointment.date, Appointment.time).all()
+            
+    appointments = query.order_by(Appointment.date, Appointment.time).all()
     
     return render_template('appointments.html', 
                            appointments=appointments, 
                            filter_date=filter_date,
-                           today=datetime.now().strftime('%Y-%m-%d'))
+                           view_type=view_type,
+                           today=date.today().strftime('%Y-%m-%d'))
 
 @app.route('/appointments/today', methods=['GET'])
 @login_required
@@ -452,9 +644,9 @@ def today_appointments():
 @app.route('/book_appointment', methods=['GET', 'POST'])
 @login_required
 def book_appointment():
-    if current_user.role not in ['staff', 'doctor']: # Doctors might also want to book?
-         flash('Unauthorized', 'danger')
-         return redirect(url_for('index'))
+    if current_user.role not in ['staff', 'it_expert']: 
+         flash('Permission denied', 'danger')
+         return redirect(url_for('dashboard'))
     if request.method == 'POST':
         patient_id = request.form.get('patient_id')
         appt_date_str = request.form.get('appointment_date')
@@ -471,6 +663,11 @@ def book_appointment():
             else:
                 appt_time = time(9, 0) # Default 9 AM
                 
+            appt_datetime = datetime.combine(appt_date, appt_time)
+            if appt_datetime < get_local_time():
+                flash('Cannot book appointment in the past.', 'danger')
+                return redirect(url_for('book_appointment'))
+                
             new_appt = Appointment(
                 patient_id=patient_id,
                 date=appt_date,
@@ -484,7 +681,10 @@ def book_appointment():
         except ValueError:
             flash('Invalid date/time format', 'danger')
             
-    patients = Patient.query.all()
+    if current_user.role == 'staff':
+        patients = Patient.query.filter_by(doctor_id=current_user.doctor_id).order_by(Patient.name).all()
+    else:
+        patients = Patient.query.order_by(Patient.name).all()
     # Pre-select patient if patient_id is passed in args
     selected_patient_id = request.args.get('patient_id')
     return render_template('book_appointment.html', patients=patients, selected_patient_id=selected_patient_id)
@@ -496,7 +696,7 @@ def generate_otp():
 def send_otp_email(user, purpose):
     otp = generate_otp()
     user.otp_secret = otp
-    user.otp_expiry = datetime.utcnow() + timedelta(minutes=5)
+    user.otp_expiry = get_local_time() + timedelta(minutes=5)
     db.session.commit()
     
     msg = Message(f'Your OTP for {purpose}', recipients=[user.email])
@@ -540,7 +740,7 @@ def verify_otp():
             flash('Invalid session', 'danger')
             return redirect(url_for('login'))
 
-        if user and user.otp_secret == otp_input and user.otp_expiry > datetime.utcnow():
+        if user and user.otp_secret == otp_input and user.otp_expiry > get_local_time():
             user.otp_secret = None # Clear OTP
             user.otp_expiry = None
             db.session.commit()

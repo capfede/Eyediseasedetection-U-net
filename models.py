@@ -1,9 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
+
+def get_local_time():
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -13,10 +16,14 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True)
     phone_number = db.Column(db.String(20))
     account_status = db.Column(db.String(20), default='Active')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=get_local_time)
     last_login = db.Column(db.DateTime)
     otp_secret = db.Column(db.String(6))
     otp_expiry = db.Column(db.DateTime)
+    doctor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    
+    # Self-referential relationship
+    doctor = db.relationship('User', remote_side=[id], backref='staff_members')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -32,8 +39,12 @@ class Patient(db.Model):
     blood_group = db.Column(db.String(5), nullable=False)
     place = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=get_local_time)
+    doctor_id = db.Column(db.Integer, db.ForeignKey('user.id', name='fk_patient_doctor_id'), nullable=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('user.id', name='fk_patient_staff_id'), nullable=True)
     diagnoses = db.relationship('Diagnosis', backref='patient', lazy=True)
+    doctor = db.relationship('User', foreign_keys=[doctor_id], backref=db.backref('assigned_patients', lazy=True))
+    staff = db.relationship('User', foreign_keys=[staff_id], backref=db.backref('registered_patients', lazy=True))
 
 class Diagnosis(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -42,7 +53,7 @@ class Diagnosis(db.Model):
     disease = db.Column(db.String(50), nullable=False)
     probability = db.Column(db.Float, nullable=False)
     image_path = db.Column(db.String(200), nullable=False)
-    date = db.Column(db.DateTime, default=datetime.utcnow)
+    date = db.Column(db.DateTime, default=get_local_time)
 
     doctor = db.relationship('User', backref=db.backref('diagnoses', lazy=True))
 
@@ -52,6 +63,6 @@ class Appointment(db.Model):
     date = db.Column(db.Date, nullable=False)
     time = db.Column(db.Time, nullable=False)
     status = db.Column(db.String(20), default='Scheduled')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=get_local_time)
     
     patient_ref = db.relationship('Patient', backref=db.backref('appointments', lazy=True))
