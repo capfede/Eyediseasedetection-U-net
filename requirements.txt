@@ -1,4 +1,4 @@
-Flask
+﻿Flask
 gunicorn
 numpy
 pandas
@@ -8,4 +8,5 @@ Flask-Login
 Flask-SQLAlchemy
 Flask-Mail
 opencv-python
-scikit-image
+scikit-image
+reportlab

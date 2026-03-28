@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
@@ -54,8 +55,15 @@ class Diagnosis(db.Model):
     probability = db.Column(db.Float, nullable=False)
     image_path = db.Column(db.String(200), nullable=False)
     date = db.Column(db.DateTime, default=get_local_time)
+    notes = db.Column(db.Text)
 
     doctor = db.relationship('User', backref=db.backref('diagnoses', lazy=True))
+
+    @property
+    def mask_path(self):
+        """Derived path; masks are stored as mask_<image_basename> per unet_predict."""
+        base = os.path.basename(self.image_path or '')
+        return os.path.join('static', 'masks', f'mask_{base}')
 
 class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)

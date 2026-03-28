@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
 from flask_mail import Mail, Message
 import random
 import string
@@ -11,6 +11,7 @@ import numpy as np
 from models import db, Patient, Diagnosis, Appointment, User, get_local_time
 from unet_predict import predict_dr
 from dr_predict import predict_dr_class
+from pdf_reports import build_full_patient_report_pdf, build_single_diagnosis_pdf
 import re
 from datetime import datetime, date, time
 
@@ -79,6 +80,12 @@ with app.app_context():
         
     try:
         db.session.execute(text('ALTER TABLE patient ADD COLUMN staff_id INTEGER REFERENCES user(id)'))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text('ALTER TABLE diagnosis ADD COLUMN notes TEXT'))
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -576,13 +583,17 @@ def predict(patient_id):
         # 2. DR Classification (for actual diagnosis)
         label, confidence = predict_dr_class(file_path)
 
+        notes_raw = (request.form.get('notes') or '').strip()
+        notes_val = notes_raw if notes_raw else None
+
         # Save Diagnosis to DB
         new_diagnosis = Diagnosis(
             patient_id=patient.id,
             doctor_id=current_user.id,
             disease=label,
             probability=confidence,
-            image_path=file_path
+            image_path=file_path,
+            notes=notes_val,
         )
         db.session.add(new_diagnosis)
         db.session.commit()
@@ -592,10 +603,92 @@ def predict(patient_id):
                                patient=patient, 
                                result=label, 
                                confidence=confidence, 
-                               mask_path=mask_path)
+                               mask_path=mask_path,
+                               notes=notes_val)
     else:
         flash('Invalid file or upload failed.', 'danger')
         return redirect(url_for('patient_dashboard', patient_id=patient_id))
+
+
+def _can_view_diagnosis_report(diagnosis):
+    """Same access rules as patient dashboard for the diagnosis's patient."""
+    patient = diagnosis.patient
+    if current_user.role not in ['staff', 'doctor', 'it_expert']:
+        return False
+    if current_user.role == 'staff' and patient.doctor_id != current_user.doctor_id:
+        return False
+    if current_user.role == 'doctor' and patient.doctor_id != current_user.id:
+        return False
+    return True
+
+
+@app.route('/diagnosis/<int:id>')
+@login_required
+def diagnosis_report(id):
+    diagnosis = Diagnosis.query.get_or_404(id)
+    if not _can_view_diagnosis_report(diagnosis):
+        flash('Unauthorized to view this report.', 'danger')
+        return redirect(url_for('dashboard'))
+    return render_template(
+        'diagnosis_report.html',
+        diagnosis=diagnosis,
+        patient=diagnosis.patient,
+    )
+
+
+def _staff_can_download_patient_pdf(patient):
+    if current_user.role != 'staff':
+        return False
+    if not current_user.doctor_id or patient.doctor_id != current_user.doctor_id:
+        return False
+    return True
+
+
+def _send_pdf_attachment(buffer, filename):
+    """send_file with download_name (Flask 2+) or attachment_filename (older)."""
+    buffer.seek(0)
+    try:
+        return send_file(
+            buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename,
+        )
+    except TypeError:
+        return send_file(
+            buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            attachment_filename=filename,
+        )
+
+
+@app.route('/download_report/<int:id>')
+@login_required
+def download_report(id):
+    if current_user.role != 'staff':
+        return 'Unauthorized Access', 403
+    diagnosis = Diagnosis.query.get_or_404(id)
+    patient = diagnosis.patient
+    if not _staff_can_download_patient_pdf(patient):
+        return 'Unauthorized Access', 403
+    buffer = build_single_diagnosis_pdf(patient, diagnosis, app.root_path)
+    return _send_pdf_attachment(buffer, f'diagnosis_report_{id}.pdf')
+
+
+@app.route('/download_patient_report/<int:patient_id>')
+@login_required
+def download_patient_report(patient_id):
+    if current_user.role != 'staff':
+        return 'Unauthorized Access', 403
+    patient = Patient.query.get_or_404(patient_id)
+    if not _staff_can_download_patient_pdf(patient):
+        return 'Unauthorized Access', 403
+    diagnoses = Diagnosis.query.filter_by(patient_id=patient.id).all()
+    diagnoses.sort(key=lambda d: (d.date or datetime.min, d.id), reverse=True)
+    buffer = build_full_patient_report_pdf(patient, diagnoses, app.root_path)
+    return _send_pdf_attachment(buffer, f'patient_{patient_id}_full_report.pdf')
+
 
 @app.route('/appointments', methods=['GET'])
 @login_required

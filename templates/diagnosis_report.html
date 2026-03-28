@@ -1,0 +1,71 @@
+{% extends "base_dashboard.html" %}
+
+{% block title %}Diagnosis Report{% endblock %}
+
+{% block page_title %}Diagnosis Report{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="mb-3">
+            <a href="{{ url_for('patient_dashboard', patient_id=patient.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left me-1"></i> Back to {{ patient.name }} (#{{ patient.id }})
+            </a>
+        </div>
+        <div class="card shadow-sm">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0"><i class="fas fa-file-medical me-2"></i>AI Diagnosis Report</h5>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                {% if current_user.role == 'staff' %}
+                <a href="/download_report/{{ diagnosis.id }}" class="btn btn-sm btn-success"><i class="fas fa-file-pdf me-1"></i>Download Report</a>
+                {% endif %}
+                <span class="text-muted small">
+                    {% if diagnosis.date %}{{ diagnosis.date.strftime('%Y-%m-%d %H:%M') }}{% else %}N/A{% endif %}
+                    {% if diagnosis.doctor %} · Dr. {{ diagnosis.doctor.username }}{% endif %}
+                </span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="p-4 border rounded bg-light mb-4">
+                    <h6 class="text-maroon fw-bold mb-3"><i class="fas fa-robot me-2"></i>Analysis Result</h6>
+                    <div class="row align-items-start">
+                        <div class="col-md-6 mb-4 mb-md-0">
+                            <div class="mb-2">
+                                <span class="text-muted small">Diagnosis:</span>
+                                <span class="badge bg-{{ 'success' if 'Normal' in diagnosis.disease else 'danger' }} ms-2 fs-6">{{ diagnosis.disease }}</span>
+                            </div>
+                            <div class="mb-3">
+                                <span class="text-muted small">Confidence:</span>
+                                <span class="fw-bold fs-5 ms-2 text-primary">{{ (diagnosis.probability * 100)|round(2) }}%</span>
+                            </div>
+                            {% if diagnosis.notes %}
+                            <div class="mb-3 p-2 border rounded bg-white">
+                                <div class="text-muted small mb-1">Doctor notes</div>
+                                <div class="small mb-0" style="white-space: pre-wrap;">{{ diagnosis.notes }}</div>
+                            </div>
+                            {% endif %}
+                            <p class="small text-muted mb-0">Original fundus image and U-Net segmentation mask from this visit.</p>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="row g-3">
+                                <div class="col-sm-6">
+                                    <div class="small text-muted mb-1">Original image</div>
+                                    <div class="border rounded bg-white p-2 shadow-sm overflow-hidden">
+                                        <img src="/{{ diagnosis.image_path }}" alt="Original scan" class="img-fluid rounded border w-100">
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="small text-muted mb-1">Segmentation mask</div>
+                                    <div class="border rounded bg-white p-2 shadow-sm overflow-hidden">
+                                        <img src="/{{ diagnosis.mask_path }}" alt="Segmentation mask" class="img-fluid rounded border w-100">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

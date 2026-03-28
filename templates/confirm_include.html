@@ -1,0 +1,201 @@
+<!-- Custom Confirmation Modal structure -->
+<style>
+    .custom-confirm-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(8px);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .custom-confirm-overlay.active {
+        display: flex;
+        opacity: 1;
+    }
+
+    .custom-confirm-modal {
+        background: white;
+        width: 90%;
+        max-width: 400px;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        transform: scale(0.8);
+        transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .custom-confirm-overlay.active .custom-confirm-modal {
+        transform: scale(1);
+    }
+
+    .custom-confirm-header {
+        background: #8B1538;
+        color: white;
+        padding: 25px;
+        text-align: center;
+    }
+
+    .custom-confirm-header i {
+        font-size: 50px;
+        margin-bottom: 15px;
+        display: block;
+    }
+
+    .custom-confirm-body {
+        padding: 30px 25px;
+        text-align: center;
+        color: #333;
+    }
+
+    .custom-confirm-body h4 {
+        font-weight: 600;
+        margin-bottom: 10px;
+        color: #333;
+    }
+
+    .custom-confirm-body p {
+        color: #666;
+        margin: 0;
+    }
+
+    .custom-confirm-footer {
+        padding: 20px;
+        display: flex;
+        gap: 15px;
+        background: #f9f9f9;
+        border-top: 1px solid #eee;
+    }
+
+    .custom-confirm-btn {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .confirm-cancel {
+        background: #eee;
+        color: #333;
+    }
+
+    .confirm-cancel:hover {
+        background: #e0e0e0;
+    }
+
+    .confirm-success {
+        background: #8B1538;
+        color: white;
+    }
+
+    .confirm-success:hover {
+        background: #A91D3A;
+        box-shadow: 0 5px 15px rgba(139, 21, 56, 0.3);
+    }
+</style>
+
+<div id="customConfirmOverlay" class="custom-confirm-overlay">
+    <div class="custom-confirm-modal">
+        <div class="custom-confirm-header">
+            <i class="fas fa-question-circle"></i>
+        </div>
+        <div class="custom-confirm-body">
+            <h4 id="confirmTitle">Confirmation</h4>
+            <p id="confirmMessage">Are you sure you want to proceed?</p>
+        </div>
+        <div class="custom-confirm-footer">
+            <button class="custom-confirm-btn confirm-cancel" id="btnCancelConfirm">Cancel</button>
+            <button class="custom-confirm-btn confirm-success" id="btnProceedConfirm">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const customConfirm = (message, title = "Confirmation") => {
+        return new Promise((resolve) => {
+            const overlay = document.getElementById('customConfirmOverlay');
+            const titleEl = document.getElementById('confirmTitle');
+            const messageEl = document.getElementById('confirmMessage');
+            const btnProceed = document.getElementById('btnProceedConfirm');
+            const btnCancel = document.getElementById('btnCancelConfirm');
+
+            titleEl.innerText = title;
+            messageEl.innerText = message;
+            overlay.classList.add('active');
+
+            const cleanup = (result) => {
+                overlay.classList.remove('active');
+                btnProceed.removeEventListener('click', onProceed);
+                btnCancel.removeEventListener('click', onCancel);
+                resolve(result);
+            };
+
+            const onProceed = () => cleanup(true);
+            const onCancel = () => cleanup(false);
+
+            btnProceed.addEventListener('click', onProceed);
+            btnCancel.addEventListener('click', onCancel);
+        });
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Intercept all clicks on elements with data-confirm
+        document.body.addEventListener('click', async (e) => {
+            const trigger = e.target.closest('[data-confirm]');
+            if (trigger && (trigger.tagName === 'A' || trigger.tagName === 'BUTTON')) {
+                // If it's a delete form inside a table, we need extra care
+                if (trigger.closest('form') && trigger.type === 'submit') {
+                    return; // Handled by submission listener
+                }
+                
+                e.preventDefault();
+                const message = trigger.getAttribute('data-confirm');
+                const title = trigger.getAttribute('data-confirm-title') || "Confirmation";
+                const confirmed = await customConfirm(message, title);
+                if (confirmed) {
+                    if (trigger.tagName === 'A') {
+                        window.location.href = trigger.href;
+                    } else if (trigger.type === 'submit' && trigger.form) {
+                        trigger.form.dataset.confirmed = "true";
+                        trigger.form.submit();
+                    } else {
+                        trigger.dispatchEvent(new CustomEvent('confirmed-event'));
+                    }
+                }
+            }
+        });
+
+        // Intercept form submissions with data-confirm
+        document.body.addEventListener('submit', async (e) => {
+            const form = e.target;
+            const submitter = e.submitter;
+            
+            let message = form.getAttribute('data-confirm');
+            let title = form.getAttribute('data-confirm-title') || "Confirmation";
+            
+            if (!message && submitter && submitter.hasAttribute('data-confirm')) {
+                message = submitter.getAttribute('data-confirm');
+                title = submitter.getAttribute('data-confirm-title') || "Confirmation";
+            }
+
+            if (message && !form.dataset.confirmed) {
+                e.preventDefault();
+                const confirmed = await customConfirm(message, title);
+                if (confirmed) {
+                    form.dataset.confirmed = "true";
+                    form.submit();
+                }
+            }
+        });
+    });
+</script>

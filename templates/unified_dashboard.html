@@ -180,7 +180,7 @@
                                 </button>
                             </form>
                             <form action="/admin/delete_user/{{ user.id }}" method="POST" style="display:inline;"
-                                onsubmit="return confirm('Delete this user?');">
+                                data-confirm="Are you sure you want to delete this user?">
                                 <button type="submit" class="btn-action btn-delete" title="Delete">
                                     <i class="fas fa-trash"></i>
                                 </button>

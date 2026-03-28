@@ -59,14 +59,19 @@
     <!-- Diagnosis/History Card -->
     <div class="col-md-8">
         <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5><i class="fas fa-notes-medical me-2"></i>Medical History</h5>
-                {% if current_user.role == 'doctor' %}
-                <button class="btn btn-sm btn-light text-maroon fw-bold" data-bs-toggle="modal"
-                    data-bs-target="#diagnosisModal">
-                    New Diagnosis
-                </button>
-                {% endif %}
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0"><i class="fas fa-notes-medical me-2"></i>Medical History</h5>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    {% if current_user.role == 'staff' and patient.diagnoses %}
+                    <a href="/download_patient_report/{{ patient.id }}" class="btn btn-sm btn-primary"><i class="fas fa-file-pdf me-1"></i>Download Full Report</a>
+                    {% endif %}
+                    {% if current_user.role == 'doctor' %}
+                    <button class="btn btn-sm btn-light text-maroon fw-bold" data-bs-toggle="modal"
+                        data-bs-target="#diagnosisModal">
+                        New Diagnosis
+                    </button>
+                    {% endif %}
+                </div>
             </div>
             <div class="card-body p-0">
                 {% if result %}
@@ -82,6 +87,12 @@
                                 <span class="text-muted small">Confidence:</span>
                                 <span class="fw-bold fs-5 ms-2 text-primary">{{ (confidence * 100)|round(2) }}%</span>
                             </div>
+                            {% if notes %}
+                            <div class="mb-3 p-2 border rounded bg-white">
+                                <div class="text-muted small mb-1">Doctor notes</div>
+                                <div class="small mb-0" style="white-space: pre-wrap;">{{ notes }}</div>
+                            </div>
+                            {% endif %}
                             <p class="small text-muted mb-0">The U-Net model has generated a segmentation mask highlighting the detected features in the retinal scan.</p>
                         </div>
                         <div class="col-md-6 text-center">
@@ -101,6 +112,8 @@
                                 <th>Result</th>
                                 <th>Confidence</th>
                                 <th>Doctor</th>
+                                <th>Notes</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -112,10 +125,17 @@
                                         diagnosis.disease }}</span></td>
                                 <td>{{ (diagnosis.probability * 100)|round(1) }}%</td>
                                 <td>{{ diagnosis.doctor.username if diagnosis.doctor else 'N/A' }}</td>
+                                <td class="small" style="max-width: 180px;">{% if diagnosis.notes %}<span style="white-space: pre-wrap;">{{ diagnosis.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                                <td class="text-nowrap">
+                                    <a href="{{ url_for('diagnosis_report', id=diagnosis.id) }}" class="btn btn-sm btn-primary">View Report</a>
+                                    {% if current_user.role == 'staff' %}
+                                    <a href="/download_report/{{ diagnosis.id }}" class="btn btn-sm btn-success">Download Report</a>
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="4" class="text-center py-5 text-muted">No diagnosis history found.</td>
+                                <td colspan="6" class="text-center py-5 text-muted">No diagnosis history found.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -141,6 +161,10 @@
                         <label class="form-label">Upload Eye Image (Retinal/Fundus Scan)</label>
                         <input type="file" class="form-control" name="filename" accept="image/*" required>
                         <div class="form-text">Supported formats: JPG, PNG, JPEG</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Doctor notes (optional)</label>
+                        <textarea name="notes" class="form-control" rows="3" placeholder="Doctor notes..."></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
