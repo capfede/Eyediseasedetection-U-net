@@ -30,6 +30,25 @@
                         </span>
                     </div>
                 </div>
+                {% if user.role == 'staff' %}
+                <div class="mb-3">
+                    <div class="text-muted small">Assigned Doctor (staff access)</div>
+                    <div class="fw-bold">
+                        {% if user.doctor %}
+                        Dr. {{ user.doctor.username }}
+                        {% else %}
+                        <span class="text-muted">None — no patient access</span>
+                        {% endif %}
+                    </div>
+                    {% if current_user.role == 'it_expert' %}
+                    <p class="small text-muted mb-0 mt-2">To switch this staff member to another doctor (or None), click <strong>Edit User Details</strong> below and use the <strong>Assigned Doctor</strong> dropdown, then Save.</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+                <div class="mb-3">
+                    <div class="text-muted small">Blood Group</div>
+                    <div class="fw-bold">{{ user.blood_group if user.blood_group else 'N/A' }}</div>
+                </div>
                 <div class="mb-3">
                     <div class="text-muted small">Email Address</div>
                     <div class="fw-bold">{{ user.email if user.email else 'N/A' }}</div>

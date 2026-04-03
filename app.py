@@ -9,7 +9,7 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from functools import wraps
 import numpy as np
 from models import db, Patient, Diagnosis, Appointment, User, get_local_time
-from unet_predict import predict_dr
+from unet_predict import generate_gradcam
 from dr_predict import predict_dr_class
 from pdf_reports import build_full_patient_report_pdf, build_single_diagnosis_pdf
 import re
@@ -43,11 +43,13 @@ def load_user(user_id):
 def create_admin():
     with app.app_context():
         if not User.query.filter_by(role='it_expert').first():
-            admin = User(username='admin', role='it_expert')
+            admin = User(username='admin', role='it_expert', blood_group='O+')
             admin.set_password('admin123')
             db.session.add(admin)
             db.session.commit()
             print("Admin user created.")
+
+            
 
 
 
@@ -79,6 +81,12 @@ with app.app_context():
         db.session.rollback()
         
     try:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN blood_group VARCHAR(5) NOT NULL DEFAULT 'O+'"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
         db.session.execute(text('ALTER TABLE patient ADD COLUMN staff_id INTEGER REFERENCES user(id)'))
         db.session.commit()
     except Exception:
@@ -100,6 +108,44 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
+
+# Email / 10-digit phone validation (users & patients)
+RE_EMAIL = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+$')
+RE_PHONE_10 = re.compile(r'^\d{10}$')
+
+
+def valid_email_format(email):
+    if email is None:
+        return False
+    s = str(email).strip()
+    return bool(s and RE_EMAIL.fullmatch(s))
+
+
+def valid_phone_10(phone):
+    if phone is None:
+        return False
+    s = str(phone).strip()
+    return bool(s and RE_PHONE_10.fullmatch(s))
+
+
+BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+
+
+def valid_blood_group(blood_group):
+    if blood_group is None:
+        return False
+    s = str(blood_group).strip()
+    return s in BLOOD_GROUPS
+
+
+def phone_optional_valid(phone):
+    """Empty / whitespace-only is OK; otherwise must be exactly 10 digits."""
+    if phone is None:
+        return True
+    s = str(phone).strip()
+    if not s:
+        return True
+    return bool(RE_PHONE_10.fullmatch(s))
 
 
 def role_required(role):
@@ -309,20 +355,31 @@ def create_user():
     username = request.form['username']
     password = request.form['password']
     role = request.form['role']
-    email = request.form.get('email')
-    phone_number = request.form.get('phone_number', '')
+    blood_group = (request.form.get('blood_group') or '').strip()
+    email = (request.form.get('email') or '').strip()
+    phone_number = (request.form.get('phone_number') or '').strip()
     doctor_id = request.form.get('doctor_id') if role == 'staff' else None
+
+    if not blood_group:
+        flash('Blood group is required', 'danger')
+        return redirect(request.referrer or url_for('admin_dashboard'))
+    if not valid_blood_group(blood_group):
+        flash('Invalid blood group selected. Choose one of A+, A-, B+, B-, AB+, AB-, O+, O-.', 'danger')
+        return redirect(request.referrer or url_for('admin_dashboard'))
     
-    if email and not re.match(r"^[a-zA-Z0-9_.+-]+@gmail\.com$", email):
-        flash('Enter a valid Gmail address.', 'danger')
-        return redirect(url_for('admin_dashboard'))
+    if not valid_email_format(email):
+        flash('Invalid email format.', 'danger')
+        return redirect(request.referrer or url_for('admin_dashboard'))
+    if not phone_optional_valid(phone_number):
+        flash('Invalid phone number. Enter 10 digits only.', 'danger')
+        return redirect(request.referrer or url_for('admin_dashboard'))
     
     if User.query.filter_by(username=username).first():
         flash('Username already exists', 'danger')
     elif email and User.query.filter_by(email=email).first(): # Check email uniqueness
         flash('Email already registered', 'danger')
     else:
-        new_user = User(username=username, role=role, email=email, phone_number=phone_number)
+        new_user = User(username=username, role=role, blood_group=blood_group, email=email, phone_number=phone_number or None)
         if role == 'staff' and doctor_id:
             new_user.doctor_id = doctor_id
         new_user.set_password(password)
@@ -347,13 +404,26 @@ def admin_edit_user(user_id):
     
     if request.method == 'POST':
         new_username = request.form.get('username')
-        new_email = request.form.get('email')
-        new_phone = request.form.get('phone_number')
+        new_email = (request.form.get('email') or '').strip()
+        new_phone = (request.form.get('phone_number') or '').strip()
         new_role = request.form.get('role')
-        doctor_id = request.form.get('doctor_id') if new_role == 'staff' else None
+        new_blood_group = (request.form.get('blood_group') or '').strip()
+        if not new_role:
+            # Role <select> is disabled when editing own account; preserve existing role
+            new_role = user.role
+
+        if not new_blood_group:
+            flash('Blood group is required', 'danger')
+            return redirect(url_for('admin_edit_user', user_id=user_id))
+        if not valid_blood_group(new_blood_group):
+            flash('Invalid blood group selected. Choose one of A+, A-, B+, B-, AB+, AB-, O+, O-.', 'danger')
+            return redirect(url_for('admin_edit_user', user_id=user_id))
         
-        if new_email and not re.match(r"^[a-zA-Z0-9_.+-]+@gmail\.com$", new_email):
-            flash('Enter a valid Gmail address.', 'danger')
+        if new_email and not valid_email_format(new_email):
+            flash('Invalid email format.', 'danger')
+            return redirect(url_for('admin_edit_user', user_id=user_id))
+        if not phone_optional_valid(request.form.get('phone_number')):
+            flash('Invalid phone number. Enter 10 digits only.', 'danger')
             return redirect(url_for('admin_edit_user', user_id=user_id))
         
         # Check username uniqueness
@@ -362,19 +432,33 @@ def admin_edit_user(user_id):
                 flash('Username already exists', 'danger')
                 return redirect(url_for('admin_edit_user', user_id=user_id))
         
-        # Check email uniqueness
-        if new_email != user.email:
+        # Check email uniqueness (only when setting a non-empty email)
+        if new_email and new_email != user.email:
             if User.query.filter_by(email=new_email).first():
                 flash('Email already registered', 'danger')
                 return redirect(url_for('admin_edit_user', user_id=user_id))
         
-        # Update user
+        # Update user (staff–doctor assignment: only for staff; empty = no doctor)
         user.username = new_username
-        user.email = new_email
-        user.phone_number = new_phone
+        user.email = new_email or None
+        user.phone_number = new_phone or None
+        user.blood_group = new_blood_group
         user.role = new_role
         if new_role == 'staff':
-            user.doctor_id = doctor_id
+            raw_doc = request.form.get('doctor_id')
+            if raw_doc is None or str(raw_doc).strip() == '':
+                user.doctor_id = None
+            else:
+                try:
+                    did = int(raw_doc)
+                except (TypeError, ValueError):
+                    flash('Invalid doctor selection.', 'danger')
+                    return redirect(url_for('admin_edit_user', user_id=user_id))
+                doc_user = User.query.get(did)
+                if not doc_user or doc_user.role != 'doctor':
+                    flash('Selected user is not a valid doctor.', 'danger')
+                    return redirect(url_for('admin_edit_user', user_id=user_id))
+                user.doctor_id = did
         else:
             user.doctor_id = None
         db.session.commit()
@@ -448,9 +532,20 @@ def register():
         name = request.form['name']
         age = request.form['age']
         gender = request.form['gender']
-        blood_group = request.form['blood_group']
+        blood_group = (request.form.get('blood_group') or '').strip()
         place = request.form['place']
-        phone = request.form['phone']
+        phone = (request.form.get('phone') or '').strip()
+
+        if not blood_group:
+            flash('Blood group is required', 'danger')
+            return redirect(url_for('register'))
+        if not valid_blood_group(blood_group):
+            flash('Invalid blood group selected. Choose one of A+, A-, B+, B-, AB+, AB-, O+, O-.', 'danger')
+            return redirect(url_for('register'))
+
+        if not valid_phone_10(phone):
+            flash('Invalid phone number. Enter 10 digits only.', 'danger')
+            return redirect(url_for('register'))
         
         if current_user.role == 'staff':
             doctor_id = current_user.doctor_id
@@ -502,12 +597,25 @@ def edit_patient(patient_id):
          return redirect(url_for('patient_dashboard', patient_id=patient_id))
          
     if request.method == 'POST':
+        phone = (request.form.get('phone') or '').strip()
+        if not valid_phone_10(phone):
+            flash('Invalid phone number. Enter 10 digits only.', 'danger')
+            return redirect(url_for('edit_patient', patient_id=patient_id))
+
+        blood_group = (request.form.get('blood_group') or '').strip()
+        if not blood_group:
+            flash('Blood group is required', 'danger')
+            return redirect(url_for('edit_patient', patient_id=patient_id))
+        if not valid_blood_group(blood_group):
+            flash('Invalid blood group selected. Choose one of A+, A-, B+, B-, AB+, AB-, O+, O-.', 'danger')
+            return redirect(url_for('edit_patient', patient_id=patient_id))
+
         patient.name = request.form['name']
         patient.age = request.form['age']
         patient.gender = request.form['gender']
-        patient.blood_group = request.form['blood_group']
+        patient.blood_group = blood_group
         patient.place = request.form['place']
-        patient.phone = request.form['phone']
+        patient.phone = phone
         
         if current_user.role == 'staff':
             pass # Keep existing doctor_id
@@ -577,8 +685,8 @@ def predict(patient_id):
         file_path = os.path.join('static/images', filename)
         file.save(file_path)
 
-        # 1. U-Net Segmentation (for visualization mask)
-        _, mask_path = predict_dr(file_path)
+        # 1. Grad-CAM attention map (replaces U-Net segmentation)
+        mask_path = generate_gradcam(file_path)
 
         # 2. DR Classification (for actual diagnosis)
         label, confidence = predict_dr_class(file_path)
@@ -601,8 +709,7 @@ def predict(patient_id):
         flash('Diagnosis added successfully!', 'success')
         return render_template('patient_dashboard.html', 
                                patient=patient, 
-                               result=label, 
-                               confidence=confidence, 
+                               diagnosis_result=new_diagnosis, 
                                mask_path=mask_path,
                                notes=notes_val)
     else:
@@ -710,13 +817,13 @@ def appointments():
         query = Appointment.query
     
     if view_type == 'today':
-        query = query.filter_by(date=date.today())
+        query = query.filter(Appointment.date == date.today())
     elif view_type == 'upcoming':
         query = query.filter(Appointment.date > date.today())
     elif filter_date:
         try:
             search_date = datetime.strptime(filter_date, '%Y-%m-%d').date()
-            query = query.filter_by(date=search_date)
+            query = query.filter(Appointment.date == search_date)
         except ValueError:
             flash('Invalid date format', 'danger')
             
@@ -806,7 +913,10 @@ def send_otp_email(user, purpose):
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
-        email = request.form['email']
+        email = (request.form.get('email') or '').strip()
+        if not valid_email_format(email):
+            flash('Invalid email format.', 'danger')
+            return redirect(url_for('forgot_password'))
         user = User.query.filter_by(email=email).first()
         if user:
             send_otp_email(user, 'Password Reset')

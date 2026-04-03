@@ -33,8 +33,8 @@
             <div class="row">
                 <div class="col-md-3 mb-3">
                     <label class="form-label">Blood Group</label>
-                    <select class="form-select" name="blood_group">
-                        <option value="">Select</option>
+                    <select class="form-select" name="blood_group" required>
+                        <option value="">Select Blood Group</option>
                         <option value="A+">A+</option>
                         <option value="A-">A-</option>
                         <option value="B+">B+</option>
@@ -51,7 +51,7 @@
                 </div>
                 <div class="col-md-3 mb-3">
                     <label class="form-label">Phone Number</label>
-                    <input type="tel" class="form-control" name="phone" placeholder="Contact number" required>
+                    <input type="text" class="form-control" name="phone" placeholder="10 digits" required maxlength="10" inputmode="numeric" autocomplete="tel" pattern="\d{10}" title="Exactly 10 digits">
                 </div>
                 {% if current_user.role != 'staff' %}
                 <div class="col-md-3 mb-3">

@@ -14,6 +14,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='staff') # it_expert, doctor, staff
+    blood_group = db.Column(db.String(5), nullable=False)
     email = db.Column(db.String(120), unique=True)
     phone_number = db.Column(db.String(20))
     account_status = db.Column(db.String(20), default='Active')
@@ -61,9 +62,31 @@ class Diagnosis(db.Model):
 
     @property
     def mask_path(self):
-        """Derived path; masks are stored as mask_<image_basename> per unet_predict."""
+        """Derived path; Grad-CAM heatmaps are stored as gradcam_<stem>.jpg."""
         base = os.path.basename(self.image_path or '')
-        return os.path.join('static', 'masks', f'mask_{base}')
+        stem, _ = os.path.splitext(base)
+        return os.path.join('static', 'masks', f'gradcam_{stem}.jpg')
+
+    @property
+    def get_explanation(self):
+        explanations = {
+            "Normal": "No signs of diabetic retinopathy detected. Regular eye checkups are recommended.",
+            "Mild": "Mild diabetic retinopathy indicates small changes in retinal blood vessels. Early monitoring is important.",
+            "Moderate": "Moderate diabetic retinopathy shows increased damage to blood vessels in the retina. Medical consultation is recommended.",
+            "Severe": "Severe diabetic retinopathy indicates significant blockage of retinal blood vessels. Immediate medical attention is advised.",
+            "Proliferative DR": "Proliferative diabetic retinopathy is an advanced stage where abnormal blood vessels grow in the retina. Urgent treatment is required."
+        }
+        # Use default if disease name slightly mismatched
+        return explanations.get(self.disease, "Regular medical consultation and eye checkups are recommended.")
+
+    @property
+    def get_lifestyle_advice(self):
+        return [
+            "Maintain healthy blood sugar levels",
+            "Follow a balanced diet",
+            "Exercise regularly",
+            "Attend regular eye checkups"
+        ]
 
 class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)

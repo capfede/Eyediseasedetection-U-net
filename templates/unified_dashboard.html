@@ -101,7 +101,7 @@
                 </div>
                 <div class="col-md-3 mb-3">
                     <label class="form-label">Email</label>
-                    <input type="email" class="form-control" name="email" required>
+                    <input type="email" class="form-control" name="email" required pattern="[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z0-9.\-]+" title="Valid email address">
                 </div>
                 <div class="col-md-2 mb-3">
                     <label class="form-label">Role</label>
@@ -109,6 +109,20 @@
                         <option value="doctor">Doctor</option>
                         <option value="staff">Staff</option>
                         <option value="it_expert">IT Expert</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-3">
+                    <label class="form-label">Blood Group</label>
+                    <select class="form-select" name="blood_group" required>
+                        <option value="">Select Blood Group</option>
+                        <option value="A+">A+</option>
+                        <option value="A-">A-</option>
+                        <option value="B+">B+</option>
+                        <option value="B-">B-</option>
+                        <option value="AB+">AB+</option>
+                        <option value="AB-">AB-</option>
+                        <option value="O+">O+</option>
+                        <option value="O-">O-</option>
                     </select>
                 </div>
                 <div class="col-md-2 mb-3" id="doctor-select-group" style="display: none;">
@@ -129,6 +143,12 @@
                     <button type="submit" class="btn btn-primary w-100">Create</button>
                 </div>
             </div>
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Phone <span class="text-muted small">(optional)</span></label>
+                    <input type="text" class="form-control" name="phone_number" maxlength="10" inputmode="numeric" autocomplete="tel" pattern="\d{10}" title="Exactly 10 digits" placeholder="10 digits">
+                </div>
+            </div>
         </form>
     </div>
 </div>
@@ -147,6 +167,7 @@
                         <th>Username</th>
                         <th>Email</th>
                         <th>Role</th>
+                        <th>Assigned Dr. <span class="text-muted fw-normal small">(staff)</span></th>
                         <th>Status</th>
                         <th class="text-end">Actions</th>
                     </tr>
@@ -164,13 +185,21 @@
                             </span>
                         </td>
                         <td>
+                            {% if user.role == 'staff' %}
+                            <span class="small">{{ user.doctor.username if user.doctor else 'None' }}</span>
+                            <a href="/admin/edit_user/{{ user.id }}" class="btn btn-sm btn-outline-primary ms-1 py-0 px-2" title="Switch which doctor this staff member works under">Change</a>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
                             <span
                                 class="badge-role badge-{{ 'active' if user.account_status == 'Active' else 'inactive' }}">
                                 {{ user.account_status if user.account_status else 'Active' }}
                             </span>
                         </td>
                         <td class="text-end">
-                            <a href="/admin/view_user/{{ user.id }}" class="btn-action btn-view" title="View/Edit">
+                            <a href="/admin/view_user/{{ user.id }}" class="btn-action btn-view" title="View profile">
                                 <i class="fas fa-eye"></i>
                             </a>
                             {% if user.id != current_user.id %}

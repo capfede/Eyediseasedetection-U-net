@@ -74,31 +74,39 @@
                 </div>
             </div>
             <div class="card-body p-0">
-                {% if result %}
+                {% if diagnosis_result %}
                 <div class="p-4 border-bottom bg-light">
-                    <h6 class="text-maroon fw-bold mb-3"><i class="fas fa-robot me-2"></i>Latest AI Analysis Result</h6>
-                    <div class="row align-items-center">
+                    <h6 class="text-maroon fw-bold mb-3"><i class="fas fa-stethoscope me-2"></i>Latest Diagnosis Analysis</h6>
+                    <div class="row align-items-start">
                         <div class="col-md-6 mb-3 mb-md-0">
-                            <div class="mb-2">
-                                <span class="text-muted small">Diagnosis:</span>
-                                <span class="badge bg-{{ 'success' if 'Normal' in result else 'danger' }} ms-2 fs-6">{{ result }}</span>
-                            </div>
                             <div class="mb-3">
-                                <span class="text-muted small">Confidence:</span>
-                                <span class="fw-bold fs-5 ms-2 text-primary">{{ (confidence * 100)|round(2) }}%</span>
+                                <span class="text-muted small">Status:</span>
+                                <span class="badge bg-{{ 'success' if 'Normal' in diagnosis_result.disease else 'danger' }} ms-2 fs-6">{{ diagnosis_result.disease }}</span>
                             </div>
+                            
+                            <div class="mb-3">
+                                <div class="fw-bold mb-1">About this condition</div>
+                                <p class="mb-3">{{ diagnosis_result.get_explanation }}</p>
+                                
+                                <div class="fw-bold mb-1">Lifestyle Advice</div>
+                                <ul class="small mb-0">
+                                    {% for advice in diagnosis_result.get_lifestyle_advice %}
+                                    <li>{{ advice }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+
                             {% if notes %}
                             <div class="mb-3 p-2 border rounded bg-white">
                                 <div class="text-muted small mb-1">Doctor notes</div>
                                 <div class="small mb-0" style="white-space: pre-wrap;">{{ notes }}</div>
                             </div>
                             {% endif %}
-                            <p class="small text-muted mb-0">The U-Net model has generated a segmentation mask highlighting the detected features in the retinal scan.</p>
                         </div>
                         <div class="col-md-6 text-center">
                             <div class="mask-preview p-2 border rounded bg-white overflow-hidden shadow-sm" style="max-width: 320px; margin: 0 auto;">
-                                <div class="small text-muted mb-1 text-start ps-1">Segmentation Mask:</div>
-                                <img src="/{{ mask_path }}" alt="Segmentation Mask" class="img-fluid rounded border" width="300">
+                                <div class="small text-muted mb-1 text-start ps-1">AI Attention Map:</div>
+                                <img src="/{{ diagnosis_result.mask_path }}" alt="AI Attention Map (Grad-CAM)" class="img-fluid rounded border" width="300">
                             </div>
                         </div>
                     </div>
@@ -110,7 +118,6 @@
                             <tr>
                                 <th>Date</th>
                                 <th>Result</th>
-                                <th>Confidence</th>
                                 <th>Doctor</th>
                                 <th>Notes</th>
                                 <th></th>
@@ -123,7 +130,6 @@
                                 <td><span
                                         class="badge bg-{{ 'success' if 'Normal' in diagnosis.disease else 'danger' }}">{{
                                         diagnosis.disease }}</span></td>
-                                <td>{{ (diagnosis.probability * 100)|round(1) }}%</td>
                                 <td>{{ diagnosis.doctor.username if diagnosis.doctor else 'N/A' }}</td>
                                 <td class="small" style="max-width: 180px;">{% if diagnosis.notes %}<span style="white-space: pre-wrap;">{{ diagnosis.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                                 <td class="text-nowrap">

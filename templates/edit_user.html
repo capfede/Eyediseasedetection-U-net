@@ -19,19 +19,35 @@
                 <div class="col-md-6 mb-3">
                     <label class="form-label">Email Address</label>
                     <input type="email" class="form-control" name="email"
-                        value="{{ user.email if user.email else '' }}">
+                        value="{{ user.email if user.email else '' }}"
+                        title="Valid email address (leave blank if none)">
                 </div>
             </div>
             <div class="row">
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
                     <label class="form-label">Phone Number</label>
-                    <input type="tel" class="form-control" name="phone_number"
-                        value="{{ user.phone_number if user.phone_number else '' }}">
+                    <input type="text" class="form-control" name="phone_number"
+                        value="{{ user.phone_number if user.phone_number else '' }}"
+                        maxlength="10" inputmode="numeric" autocomplete="tel"
+                        title="10 digits only, or leave blank">
                 </div>
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Blood Group</label>
+                    <select class="form-select" name="blood_group" required>
+                        <option value="">Select Blood Group</option>
+                        <option value="A+" {% if user.blood_group == 'A+' %}selected{% endif %}>A+</option>
+                        <option value="A-" {% if user.blood_group == 'A-' %}selected{% endif %}>A-</option>
+                        <option value="B+" {% if user.blood_group == 'B+' %}selected{% endif %}>B+</option>
+                        <option value="B-" {% if user.blood_group == 'B-' %}selected{% endif %}>B-</option>
+                        <option value="AB+" {% if user.blood_group == 'AB+' %}selected{% endif %}>AB+</option>
+                        <option value="AB-" {% if user.blood_group == 'AB-' %}selected{% endif %}>AB-</option>
+                        <option value="O+" {% if user.blood_group == 'O+' %}selected{% endif %}>O+</option>
+                        <option value="O-" {% if user.blood_group == 'O-' %}selected{% endif %}>O-</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
                     <label class="form-label">Role</label>
-                    <select class="form-select" name="role" id="edit_role_select" required {% if user.id==current_user.id %}disabled{% endif
-                        %}>
+                    <select class="form-select" name="role" id="edit_role_select" required {% if user.id==current_user.id %}disabled{% endif %}>
                         <option value="doctor" {% if user.role=='doctor' %}selected{% endif %}>Doctor</option>
                         <option value="staff" {% if user.role=='staff' %}selected{% endif %}>Staff</option>
                         <option value="it_expert" {% if user.role=='it_expert' %}selected{% endif %}>IT Expert</option>
@@ -40,11 +56,12 @@
             </div>
             <div class="row" id="doctor-select-row" style="display: {% if user.role == 'staff' %}flex{% else %}none{% endif %};">
                 <div class="col-md-6 mb-3">
-                    <label class="form-label">Assign Doctor</label>
-                    <select class="form-select" name="doctor_id" id="edit_doctor_select" {% if user.role == 'staff' %}required{% endif %}>
-                        <option value="">-- Select --</option>
+                    <label class="form-label">Assigned Doctor</label>
+                    <p class="text-muted small mb-2">Staff only see patients of this doctor. Choose None if this staff member should not access any patients.</p>
+                    <select class="form-select" name="doctor_id" id="edit_doctor_select">
+                        <option value="" {% if not user.doctor_id %}selected{% endif %}>None</option>
                         {% for doctor in doctors %}
-                        <option value="{{ doctor.id }}" {% if user.doctor_id == doctor.id %}selected{% endif %}>Dr. {{ doctor.username }}</option>
+                        <option value="{{ doctor.id }}" {% if user.doctor_id == doctor.id %}selected{% endif %}>{{ doctor.username }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -67,11 +84,9 @@ document.addEventListener('DOMContentLoaded', function() {
         roleSelect.addEventListener('change', function() {
             if (this.value === 'staff') {
                 doctorRow.style.display = 'flex';
-                doctorSelect.required = true;
             } else {
                 doctorRow.style.display = 'none';
-                doctorSelect.required = false;
-                doctorSelect.value = '';
+                if (doctorSelect) doctorSelect.value = '';
             }
         });
     }

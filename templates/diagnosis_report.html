@@ -35,8 +35,15 @@
                                 <span class="badge bg-{{ 'success' if 'Normal' in diagnosis.disease else 'danger' }} ms-2 fs-6">{{ diagnosis.disease }}</span>
                             </div>
                             <div class="mb-3">
-                                <span class="text-muted small">Confidence:</span>
-                                <span class="fw-bold fs-5 ms-2 text-primary">{{ (diagnosis.probability * 100)|round(2) }}%</span>
+                                <div class="fw-bold mb-1">About this condition</div>
+                                <p class="mb-3">{{ diagnosis.get_explanation }}</p>
+                                
+                                <div class="fw-bold mb-1">Lifestyle Advice</div>
+                                <ul class="small mb-0">
+                                    {% for advice in diagnosis.get_lifestyle_advice %}
+                                    <li>{{ advice }}</li>
+                                    {% endfor %}
+                                </ul>
                             </div>
                             {% if diagnosis.notes %}
                             <div class="mb-3 p-2 border rounded bg-white">
@@ -44,7 +51,7 @@
                                 <div class="small mb-0" style="white-space: pre-wrap;">{{ diagnosis.notes }}</div>
                             </div>
                             {% endif %}
-                            <p class="small text-muted mb-0">Original fundus image and U-Net segmentation mask from this visit.</p>
+                            <p class="small text-muted mb-0">Original fundus image and AI Attention Map from this visit.</p>
                         </div>
                         <div class="col-md-6">
                             <div class="row g-3">
@@ -55,9 +62,9 @@
                                     </div>
                                 </div>
                                 <div class="col-sm-6">
-                                    <div class="small text-muted mb-1">Segmentation mask</div>
+                                    <div class="small text-muted mb-1">AI Attention map</div>
                                     <div class="border rounded bg-white p-2 shadow-sm overflow-hidden">
-                                        <img src="/{{ diagnosis.mask_path }}" alt="Segmentation mask" class="img-fluid rounded border w-100">
+                                        <img src="/{{ diagnosis.mask_path }}" alt="AI Attention map" class="img-fluid rounded border w-100">
                                     </div>
                                 </div>
                             </div>
