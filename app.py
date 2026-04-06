@@ -24,8 +24,8 @@ app.secret_key = 'supersecretkey'  # Needed for flash messages
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'skrkollam2013@gmail.com')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'Madhavam439') # Note: Verify if this is App Password or Login Password
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'kesavcr0@gmail.com')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'qvdgoyeezskxgybl')
 app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 mail = Mail(app)
@@ -98,6 +98,18 @@ with app.app_context():
     except Exception:
         db.session.rollback()
         
+    try:
+        db.session.execute(text('ALTER TABLE appointment ADD COLUMN doctor_id INTEGER REFERENCES user(id)'))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text('ALTER TABLE appointment ADD COLUMN token_number INTEGER NOT NULL DEFAULT 1'))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     create_admin()
     cleanup_old_appointments()
 
@@ -146,6 +158,14 @@ def phone_optional_valid(phone):
     if not s:
         return True
     return bool(RE_PHONE_10.fullmatch(s))
+
+
+def valid_age(age):
+    try:
+        val = int(age)
+        return 1 <= val <= 120
+    except (ValueError, TypeError):
+        return False
 
 
 def role_required(role):
@@ -378,6 +398,8 @@ def create_user():
         flash('Username already exists', 'danger')
     elif email and User.query.filter_by(email=email).first(): # Check email uniqueness
         flash('Email already registered', 'danger')
+    elif phone_number and User.query.filter_by(phone_number=phone_number).first(): # Check phone uniqueness
+        flash('Phone number already registered', 'danger')
     else:
         new_user = User(username=username, role=role, blood_group=blood_group, email=email, phone_number=phone_number or None)
         if role == 'staff' and doctor_id:
@@ -436,6 +458,12 @@ def admin_edit_user(user_id):
         if new_email and new_email != user.email:
             if User.query.filter_by(email=new_email).first():
                 flash('Email already registered', 'danger')
+                return redirect(url_for('admin_edit_user', user_id=user_id))
+        
+        # Check phone uniqueness
+        if new_phone and new_phone != user.phone_number:
+            if User.query.filter_by(phone_number=new_phone).first():
+                flash('Phone number already registered', 'danger')
                 return redirect(url_for('admin_edit_user', user_id=user_id))
         
         # Update user (staff–doctor assignment: only for staff; empty = no doctor)
@@ -543,8 +571,16 @@ def register():
             flash('Invalid blood group selected. Choose one of A+, A-, B+, B-, AB+, AB-, O+, O-.', 'danger')
             return redirect(url_for('register'))
 
+        if not valid_age(age):
+            flash('Enter a valid age', 'danger')
+            return redirect(url_for('register'))
+
         if not valid_phone_10(phone):
             flash('Invalid phone number. Enter 10 digits only.', 'danger')
+            return redirect(url_for('register'))
+        
+        if Patient.query.filter_by(phone=phone).first():
+            flash('Phone number already registered', 'danger')
             return redirect(url_for('register'))
         
         if current_user.role == 'staff':
@@ -598,9 +634,21 @@ def edit_patient(patient_id):
          
     if request.method == 'POST':
         phone = (request.form.get('phone') or '').strip()
+        age = request.form.get('age')
+
+        if not valid_age(age):
+            flash('Enter a valid age', 'danger')
+            return redirect(url_for('edit_patient', patient_id=patient_id))
+
         if not valid_phone_10(phone):
             flash('Invalid phone number. Enter 10 digits only.', 'danger')
             return redirect(url_for('edit_patient', patient_id=patient_id))
+        
+        # Check phone uniqueness for patient
+        if phone != patient.phone:
+            if Patient.query.filter_by(phone=phone).first():
+                flash('Phone number already registered', 'danger')
+                return redirect(url_for('edit_patient', patient_id=patient_id))
 
         blood_group = (request.form.get('blood_group') or '').strip()
         if not blood_group:
@@ -611,7 +659,7 @@ def edit_patient(patient_id):
             return redirect(url_for('edit_patient', patient_id=patient_id))
 
         patient.name = request.form['name']
-        patient.age = request.form['age']
+        patient.age = int(age)
         patient.gender = request.form['gender']
         patient.blood_group = blood_group
         patient.place = request.form['place']
@@ -827,7 +875,7 @@ def appointments():
         except ValueError:
             flash('Invalid date format', 'danger')
             
-    appointments = query.order_by(Appointment.date, Appointment.time).all()
+    appointments = query.order_by(Appointment.date, Appointment.token_number).all()
     
     return render_template('appointments.html', 
                            appointments=appointments, 
@@ -858,24 +906,34 @@ def book_appointment():
             
         try:
             appt_date = datetime.strptime(appt_date_str, '%Y-%m-%d').date()
-            if appt_time_str:
-                appt_time = datetime.strptime(appt_time_str, '%H:%M').time()
-            else:
-                appt_time = time(9, 0) # Default 9 AM
-                
-            appt_datetime = datetime.combine(appt_date, appt_time)
-            if appt_datetime < get_local_time():
+            if appt_date < date.today():
                 flash('Cannot book appointment in the past.', 'danger')
                 return redirect(url_for('book_appointment'))
+            
+            patient = Patient.query.get(patient_id)
+            if not patient:
+                flash('Invalid patient selected.', 'danger')
+                return redirect(url_for('book_appointment'))
+            
+            doctor_id = patient.doctor_id
+            if not doctor_id:
+                flash('Patient has no assigned doctor. Cannot book appointment.', 'danger')
+                return redirect(url_for('book_appointment'))
+
+            # Token generation logic
+            last_appt = Appointment.query.filter_by(doctor_id=doctor_id, date=appt_date).order_by(Appointment.token_number.desc()).first()
+            token_number = (last_appt.token_number + 1) if last_appt else 1
                 
             new_appt = Appointment(
                 patient_id=patient_id,
+                doctor_id=doctor_id,
                 date=appt_date,
-                time=appt_time
+                token_number=token_number,
+                status='Waiting'
             )
             db.session.add(new_appt)
             db.session.commit()
-            flash('Appointment booked successfully!', 'success')
+            flash(f'Appointment booked successfully! Your Token Number: {token_number} (Doctor: Dr. {new_appt.doctor.username}, Date: {appt_date_str})', 'success')
             return redirect(url_for('appointments', date=appt_date_str))
             
         except ValueError:
@@ -888,6 +946,24 @@ def book_appointment():
     # Pre-select patient if patient_id is passed in args
     selected_patient_id = request.args.get('patient_id')
     return render_template('book_appointment.html', patients=patients, selected_patient_id=selected_patient_id)
+
+@app.route('/appointment/<int:id>/complete', methods=['POST'])
+@login_required
+def complete_appointment(id):
+    if current_user.role != 'staff':
+        flash('Only staff can mark appointments as completed.', 'danger')
+        return redirect(url_for('appointments'))
+        
+    appt = Appointment.query.get_or_404(id)
+    # Security check: staff can only complete appointments for their assigned doctor
+    if current_user.doctor_id and appt.doctor_id != current_user.doctor_id:
+        flash('Unauthorized to manage this appointment.', 'danger')
+        return redirect(url_for('appointments'))
+        
+    appt.status = 'Completed'
+    db.session.commit()
+    flash(f'Appointment for {appt.patient_ref.name} (Token #{appt.token_number}) marked as Completed.', 'success')
+    return redirect(url_for('appointments', date=appt.date.strftime('%Y-%m-%d')))
 
 # OTP Helper
 def generate_otp():

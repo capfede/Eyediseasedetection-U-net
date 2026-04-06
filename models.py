@@ -16,7 +16,7 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), nullable=False, default='staff') # it_expert, doctor, staff
     blood_group = db.Column(db.String(5), nullable=False)
     email = db.Column(db.String(120), unique=True)
-    phone_number = db.Column(db.String(20))
+    phone_number = db.Column(db.String(20), unique=True)
     account_status = db.Column(db.String(20), default='Active')
     created_at = db.Column(db.DateTime, default=get_local_time)
     last_login = db.Column(db.DateTime)
@@ -40,7 +40,7 @@ class Patient(db.Model):
     gender = db.Column(db.String(10), nullable=False)
     blood_group = db.Column(db.String(5), nullable=False)
     place = db.Column(db.String(100), nullable=False)
-    phone = db.Column(db.String(20), nullable=False)
+    phone = db.Column(db.String(20), nullable=False, unique=True)
     created_at = db.Column(db.DateTime, default=get_local_time)
     doctor_id = db.Column(db.Integer, db.ForeignKey('user.id', name='fk_patient_doctor_id'), nullable=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('user.id', name='fk_patient_staff_id'), nullable=True)
@@ -91,9 +91,16 @@ class Diagnosis(db.Model):
 class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    doctor_id = db.Column(db.Integer, db.ForeignKey('user.id', name='fk_appointment_doctor_id'), nullable=True) # Usually required but keeping nullable for migration safety
     date = db.Column(db.Date, nullable=False)
-    time = db.Column(db.Time, nullable=False)
-    status = db.Column(db.String(20), default='Scheduled')
+    time = db.Column(db.Time, nullable=True) # Made nullable as it's no longer the primary scheduling field
+    token_number = db.Column(db.Integer, nullable=False, default=1)
+    status = db.Column(db.String(20), default='Waiting') # Changed default to 'Waiting' as requested
     created_at = db.Column(db.DateTime, default=get_local_time)
     
     patient_ref = db.relationship('Patient', backref=db.backref('appointments', lazy=True))
+    doctor = db.relationship('User', backref=db.backref('appointments', lazy=True))
+
+    __table_args__ = (
+        db.UniqueConstraint('doctor_id', 'date', 'token_number', name='unique_appointment_token'),
+    )

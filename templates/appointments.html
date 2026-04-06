@@ -44,21 +44,41 @@
             <table class="table mb-0">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Patient</th>
+                        <th>Token</th>
+                        <th>Patient Name</th>
+                        <th>Doctor</th>
                         <th>Date</th>
-                        <th>Time</th>
                         <th>Status</th>
+                        {% if current_user.role == 'staff' %}
+                        <th class="text-end">Actions</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for appointment in appointments %}
                     <tr>
-                        <td>#{{ appointment.id }}</td>
-                        <td><strong>{{ appointment.patient_ref.name }}</strong> (ID: {{ appointment.patient_id }})</td>
+                        <td class="fw-bold fs-5 text-primary">#{{ appointment.token_number }}</td>
+                        <td><strong>{{ appointment.patient_ref.name }}</strong> <small class="text-muted">(ID: {{ appointment.patient_id }})</small></td>
+                        <td>Dr. {{ appointment.doctor.username if appointment.doctor else 'N/A' }}</td>
                         <td>{{ appointment.date.strftime('%Y-%m-%d') if appointment.date else 'N/A' }}</td>
-                        <td>{{ appointment.time.strftime('%H:%M') if appointment.time else 'N/A' }}</td>
-                        <td><span class="badge bg-success">Scheduled</span></td>
+                        <td>
+                            <span class="badge {% if appointment.status == 'Completed' %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                                {{ appointment.status if appointment.status else 'Waiting' }}
+                            </span>
+                        </td>
+                        {% if current_user.role == 'staff' %}
+                        <td class="text-end">
+                            {% if appointment.status != 'Completed' %}
+                            <form action="/appointment/{{ appointment.id }}/complete" method="POST" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-success py-0 px-2" title="Mark as Completed">
+                                    <i class="fas fa-check me-1"></i>Mark Completed
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="text-muted small"><i class="fas fa-check-circle me-1"></i>Done</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                     </tr>
                     {% else %}
                     <tr>

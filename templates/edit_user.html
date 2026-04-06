@@ -20,6 +20,7 @@
                     <label class="form-label">Email Address</label>
                     <input type="email" class="form-control" name="email"
                         value="{{ user.email if user.email else '' }}"
+                        pattern="[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z0-9.\-]+"
                         title="Valid email address (leave blank if none)">
                 </div>
             </div>
@@ -29,7 +30,7 @@
                     <input type="text" class="form-control" name="phone_number"
                         value="{{ user.phone_number if user.phone_number else '' }}"
                         maxlength="10" inputmode="numeric" autocomplete="tel"
-                        title="10 digits only, or leave blank">
+                        pattern="\d{10}" title="10 digits only, or leave blank">
                 </div>
                 <div class="col-md-4 mb-3">
                     <label class="form-label">Blood Group</label>
