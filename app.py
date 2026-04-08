@@ -24,8 +24,8 @@ app.secret_key = 'supersecretkey'  # Needed for flash messages
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'kesavcr0@gmail.com')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'qvdgoyeezskxgybl')
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', 'eyemedico07@gmail.com')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', 'ldmgbmeomeugxvwf')
 app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 mail = Mail(app)
@@ -166,6 +166,28 @@ def valid_age(age):
         return 1 <= val <= 120
     except (ValueError, TypeError):
         return False
+
+
+def validate_password_strength(password):
+    """
+    Validates password strength:
+    - Minimum 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one number
+    - At least one special character
+    """
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter."
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter."
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number."
+    if not any(c in string.punctuation for c in password):
+        return False, "Password must contain at least one special character."
+    return True, ""
 
 
 def role_required(role):
@@ -375,6 +397,12 @@ def create_user():
     username = request.form['username']
     password = request.form['password']
     role = request.form['role']
+
+    is_valid, msg = validate_password_strength(password)
+    if not is_valid:
+        flash(msg, 'danger')
+        return redirect(request.referrer or url_for('admin_dashboard'))
+
     blood_group = (request.form.get('blood_group') or '').strip()
     email = (request.form.get('email') or '').strip()
     phone_number = (request.form.get('phone_number') or '').strip()
@@ -1057,6 +1085,11 @@ def reset_password():
         if password != confirm:
             flash('Passwords do not match', 'danger')
         else:
+            is_valid, msg = validate_password_strength(password)
+            if not is_valid:
+                flash(msg, 'danger')
+                return render_template('reset_password.html')
+            
             email = session.get('reset_email')
             user = User.query.filter_by(email=email).first()
             if user:
@@ -1095,6 +1128,11 @@ def change_username():
 @login_required
 def change_password():
     new_password = request.form['new_password']
+    is_valid, msg = validate_password_strength(new_password)
+    if not is_valid:
+        flash(msg, 'danger')
+        return redirect(url_for('profile'))
+        
     session['pending_password'] = new_password
     session['otp_purpose'] = 'change_password'
     

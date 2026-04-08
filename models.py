@@ -2,7 +2,8 @@ import os
 from datetime import datetime, timedelta
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
+import bcrypt
+from werkzeug.security import check_password_hash
 
 db = SQLAlchemy()
 
@@ -28,9 +29,20 @@ class User(UserMixin, db.Model):
     doctor = db.relationship('User', remote_side=[id], backref='staff_members')
 
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+        # Generate salt and hash the password
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+        self.password_hash = hashed.decode('utf-8')
 
     def check_password(self, password):
+        # Detect hash type: bcrypt hashes typically start with $2a$ or $2b$
+        if self.password_hash.startswith('$2a$') or self.password_hash.startswith('$2b$'):
+            try:
+                return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+            except ValueError:
+                # In case of malformed bcrypt hash, fallback or fail
+                return False
+        # Fallback to Werkzeug check for legacy hashes (PBKDF2, etc.)
         return check_password_hash(self.password_hash, password)
 
 class Patient(db.Model):

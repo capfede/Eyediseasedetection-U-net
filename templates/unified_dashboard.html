@@ -33,15 +33,6 @@
             </div>
         </div>
     </a>
-    {% if current_user.role == 'doctor' %}
-    <a href="/diagnosis/patients" class="stat-card-link">
-        <div class="stat-card">
-            <div class="stat-icon"><i class="fas fa-stethoscope"></i></div>
-            <div class="stat-value">{{ diagnosis_count }}</div>
-            <div class="stat-label">My Diagnoses</div>
-        </div>
-    </a>
-    {% endif %}
 </div>
 
 <!-- Quick Actions -->
